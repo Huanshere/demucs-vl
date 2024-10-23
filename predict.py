@@ -12,31 +12,15 @@ from demucs.audio import save_audio
 from demucs.htdemucs import HTDemucs
 from demucs.pretrained import get_model
 
-# The demucs API does have a method to get all models but it
-# returns models we don't want so it's easier to manually curate
+# 预加载的 Demucs 模型列表
 DEMUCS_MODELS = [
-    # Demucs v4
     "htdemucs",
-    "htdemucs_ft",
-    "htdemucs_6s",
-    # Demucs v3
-    "hdemucs_mmi",
-    # Demucs v2
-    # I'm not including the non-quantized versions because
-    # according to the author, there is no quality degradation
-    # so this should just help speed up boot times
-    "mdx_q",
-    "mdx_extra_q",
 ]
 
 
 class PreloadedSeparator(Separator):
     """
-    For efficiency, this cog keeps the models in memory
-    so that they don't need to be loaded for every single request.
-
-    The Separator API only supports loading models by name, so
-    we have to subclass it and load the model manually.
+    为了提高效率，此类将模型保存在内存中，避免每次请求都需要加载模型。
     """
 
     def __init__(
@@ -67,82 +51,38 @@ class PreloadedSeparator(Separator):
 
 class Predictor(BasePredictor):
     """
-    This cog implements the Cog API to inference Demucs models.
+    实现 Cog API 的预测器，用于推理 Demucs 模型。
     """
 
     def setup(self):
         """
-        Loading the models into memory will provide faster prediction
-        when multiple requests are made in succession.
+        预先加载模型以提高连续请求时的预测速度。
         """
         self.models = {model: get_model(model) for model in DEMUCS_MODELS}
 
     def predict(
         self,
-        audio: Path = Input(description="Upload the file to be processed here."),
-        model: str = Input(
-            default="htdemucs",
-            description="Choose the demucs audio that proccesses your audio. The readme has more information on what to choose.",
-            choices=DEMUCS_MODELS,
-        ),
-        stem: str = Input(
-            default="none",
-            description="If you just want to isolate one stem, you can choose it here.",
-            choices=["none", "drums", "bass", "other", "vocals", "guitar", "piano"],
-        ),
-        # Audio Options
-        output_format: str = Input(
-            default="mp3",
-            description="Choose the audio format you would like the result to be returned in.",
-            choices=["mp3", "flac", "wav"],
-        ),
-        mp3_bitrate: int = Input(
-            default=320,
-            description="Choose the bitrate for the MP3 output. Higher is better quality but larger file size. If MP3 is not selected as the output type, this has no effect.",
-        ),
-        mp3_preset: int = Input(
-            default=2,
-            choices=range(2, 8),
-            description="Choose the preset for the MP3 output. Higher is faster but worse quality. If MP3 is not selected as the output type, this has no effect.",
-        ),
-        wav_format: str = Input(
-            default="int24",
-            choices=["int16", "int24", "float32"],
-            description="Choose format for the WAV output. If WAV is not selected as the output type, this has no effect.",
-        ),
-        clip_mode: str = Input(
-            default="rescale",
-            choices=["rescale", "clamp", "none"],
-            description="Choose the strategy for avoiding clipping. Rescale will rescale entire signal if necessary or clamp will allow hard clipping.",
-        ),
-        # Separator Options
-        shifts: int = Input(
-            default=1,
-            description="Choose the amount random shifts for equivariant stabilization. This performs multiple predictions with random shifts of the input and averages them, which makes it x times slower.",
-        ),
-        overlap: float = Input(
-            default=0.25,
-            description="Choose the amount of overlap between prediction windows.",
-        ),
-        split: bool = Input(
-            default=True,
-            description="Choose whether or not the audio should be split into chunks.",
-        ),
-        segment: int = Input(
-            default=None,
-            description="Choose the segment length to use for separation.",
-        ),
-        jobs: int = Input(
-            default=0,
-            description="Choose the number of parallel jobs to use for separation.",
-        ),
+        audio: Path = Input(description="上传需要处理的音频文件。"),
     ) -> dict:
-        # Use preloaded model
-        model = self.models[model]
+        # 固定的参数值
+        model_name = "htdemucs"
+        stem = "vocals"
+        output_format = "mp3"
+        mp3_bitrate = 64
+        mp3_preset = 4
+        clip_mode = "rescale"
+        shifts = 1
+        overlap = 0.25
+        split = True
+        segment = None
+        jobs = 0
+
+        # 使用预加载的模型
+        model = self.models[model_name]
 
         if stem != "none" and stem not in model.sources:
             raise ValueError(
-                f"Selected stem '{stem}' is not supported by chosen model."
+                f"选择的 stem '{stem}' 不支持所选的模型。"
             )
 
         max_allowed_segment = float("inf")
@@ -153,7 +93,7 @@ class Predictor(BasePredictor):
 
         if segment is not None and segment > max_allowed_segment:
             raise ValueError(
-                f"Cannot use a Transformer model with a longer segment than it was trained for. Maximum allowed segment is {max_allowed_segment}."
+                f"不能使用比模型训练时更长的 segment。最大允许的 segment 是 {max_allowed_segment}。"
             )
 
         separator = PreloadedSeparator(
@@ -172,8 +112,8 @@ class Predictor(BasePredictor):
             "bitrate": mp3_bitrate,
             "preset": mp3_preset,
             "clip": clip_mode,
-            "as_float": wav_format == "float32",
-            "bits_per_sample": 24 if wav_format == "int24" else 16,
+            "as_float": False,
+            "bits_per_sample": 24,
         }
 
         output_stems = {}
