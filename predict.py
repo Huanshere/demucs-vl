@@ -69,7 +69,7 @@ class Predictor(BasePredictor):
         stem = "vocals"
         output_format = "mp3"
         mp3_bitrate = 64
-        mp3_preset = 4
+        mp3_preset = 2
         clip_mode = "rescale"
         shifts = 1
         overlap = 0.25
@@ -118,23 +118,23 @@ class Predictor(BasePredictor):
 
         output_stems = {}
 
-        if stem == "none":
-            for name, source in outputs.items():
-                with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as f:
-                    save_audio(source.cpu(), f.name, **kwargs)
-                    output_stems[name] = BytesIO(open(f.name, "rb").read())
-        else:
-            with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as f:
-                save_audio(outputs[stem].cpu(), f.name, **kwargs)
-                output_stems[stem] = BytesIO(open(f.name, "rb").read())
+        # 处理 vocals stem
+        temp_file = tempfile.NamedTemporaryFile(suffix=f".{output_format}", delete=False)
+        save_audio(outputs[stem].cpu(), temp_file.name, **kwargs)
+        temp_file.close()
+        with open(temp_file.name, 'rb') as f:
+            output_stems[stem] = BytesIO(f.read())
 
-            other_stem = torch.zeros_like(outputs[stem])
-            for source, audio in outputs.items():
-                if source != stem:
-                    other_stem += audio
+        # 处理其他 stem (no_vocals)
+        other_stem = torch.zeros_like(outputs[stem])
+        for source, audio in outputs.items():
+            if source != stem:
+                other_stem += audio
 
-            with tempfile.NamedTemporaryFile(suffix=f".{output_format}") as f:
-                save_audio(other_stem.cpu(), f.name, **kwargs)
-                output_stems["no_" + stem] = BytesIO(open(f.name, "rb").read())
+        temp_file = tempfile.NamedTemporaryFile(suffix=f".{output_format}", delete=False)
+        save_audio(other_stem.cpu(), temp_file.name, **kwargs)
+        temp_file.close()
+        with open(temp_file.name, 'rb') as f:
+            output_stems["no_" + stem] = BytesIO(f.read())
 
         return output_stems
